@@ -20,7 +20,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 
-PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/compound/"
+PUBCHEM_BASE = "PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug""
 
 # ---------------------------------------------------------------------------
 # PubChem
@@ -41,12 +41,30 @@ def fetch_pubchem(
         return {"error": "Invalid input"}
 
     try:
-        if smi:
-            # Resolve SMILES via PubChem for metadata (may still fail if exotic)
+         if smi:
+             # Resolve SMILES via PubChem for metadata (may still fail if exotic)
+
             enc = urllib.parse.quote(smi, safe="")
-            url = (
-                f"{PUBCHEM_BASE}/compound/smiles/{enc}/property/"
-                "IsomericSMILES,IUPACName,MolecularFormula/JSON"
+            
+            url = f"{PUBCHEM_BASE}/compound/smiles/{enc}/property/IsomericSMILES,IUPACName,MolecularFormula/JSON"
+            
+            r = requests.get(url, timeout=25)
+            
+            if r.status_code != 200:
+                return {"error": "Compound not found"}
+            
+            data = r.json()
+            
+            if "PropertyTable" not in data or not data["PropertyTable"].get("Properties"):
+                return {"error": "Compound not found"}
+            
+            props = data["PropertyTable"]["Properties"][0]
+            
+            return {
+                "smiles": props.get("IsomericSMILES") or smi,
+                "iupac": props.get("IUPACName", ""),
+                "formula": props.get("MolecularFormula", ""),
+    }
             )
             r = requests.get(url, timeout=25)
             if r.status_code != 200:
@@ -72,9 +90,7 @@ def fetch_pubchem(
             return {"error": "Compound not found"}
 
         cid = cid_json["IdentifierList"]["CID"][0]
-        prop_url = (
-            f"{PUBCHEM_BASE}/compound/cid/{cid}/property/"
-            "IsomericSMILES,IUPACName,MolecularFormula/JSON"
+        prop_url = (prop_url = f"{PUBCHEM_BASE}/compound/cid/{cid}/property/IsomericSMILES,IUPACName,MolecularFormula/JSON"
         )
         prop_r = requests.get(prop_url, timeout=25)
         if prop_r.status_code != 200:
