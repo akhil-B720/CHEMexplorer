@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 ChemExplorer X — chemistry learning platform (Flask + RDKit + PubChem + 3Dmol.js)
@@ -6,8 +5,6 @@ ChemExplorer X — chemistry learning platform (Flask + RDKit + PubChem + 3Dmol.
 
 from __future__ import annotations
 
-import html
-import re
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,7 +18,23 @@ from rdkit.Chem.Draw import rdMolDraw2D
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 
+# PUG REST root — must be /rest/pug (not /compound/ which is the website HTML path)
 PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+
+PUBCHEM_HEADERS = {
+    "User-Agent": "ChemExplorerX/1.0 (Educational; contact: local)",
+    "Accept": "application/json",
+}
+
+
+def _props_smiles(props: Dict[str, Any], fallback: str) -> str:
+    """PubChem returns IsomericSMILES when requested; some responses use SMILES only."""
+    return (
+        (props.get("IsomericSMILES") or props.get("SMILES") or props.get("CanonicalSMILES") or "")
+        .strip()
+        or fallback
+    )
+
 
 # ---------------------------------------------------------------------------
 # PubChem
@@ -43,21 +56,35 @@ def fetch_pubchem(
 
     try:
         if smi:
-            # Resolve SMILES via PubChem for metadata (may still fail if exotic)
+            # GET with URL-encoded SMILES; fallback POST for very long or problematic strings
             enc = urllib.parse.quote(smi, safe="")
             url = (
                 f"{PUBCHEM_BASE}/compound/smiles/{enc}/property/"
-                "IsomericSMILES,IUPACName,MolecularFormula/JSON"
+                "IsomericSMILES,CanonicalSMILES,SMILES,IUPACName,MolecularFormula/JSON"
             )
-            r = requests.get(url, timeout=25)
+            r = requests.get(url, timeout=30, headers=PUBCHEM_HEADERS)
+            if r.status_code != 200:
+                post_url = (
+                    f"{PUBCHEM_BASE}/compound/smi/property/"
+                    "IsomericSMILES,CanonicalSMILES,SMILES,IUPACName,MolecularFormula/JSON"
+                )
+                r = requests.post(
+                    post_url,
+                    data=smi.encode("utf-8"),
+                    headers={**PUBCHEM_HEADERS, "Content-Type": "text/plain"},
+                    timeout=30,
+                )
             if r.status_code != 200:
                 return {"error": "Compound not found"}
             data = r.json()
             if "PropertyTable" not in data or not data["PropertyTable"].get("Properties"):
                 return {"error": "Compound not found"}
             props = data["PropertyTable"]["Properties"][0]
+            out_smi = _props_smiles(props, smi)
+            if not out_smi:
+                return {"error": "Compound not found"}
             return {
-                "smiles": props.get("IsomericSMILES") or smi,
+                "smiles": out_smi,
                 "iupac": props.get("IUPACName", ""),
                 "formula": props.get("MolecularFormula", ""),
             }
@@ -65,7 +92,7 @@ def fetch_pubchem(
         # Name search
         enc_name = urllib.parse.quote(name, safe="")
         cid_url = f"{PUBCHEM_BASE}/compound/name/{enc_name}/cids/JSON"
-        cid_r = requests.get(cid_url, timeout=25)
+        cid_r = requests.get(cid_url, timeout=30, headers=PUBCHEM_HEADERS)
         if cid_r.status_code != 200:
             return {"error": "Compound not found"}
         cid_json = cid_r.json()
@@ -75,16 +102,16 @@ def fetch_pubchem(
         cid = cid_json["IdentifierList"]["CID"][0]
         prop_url = (
             f"{PUBCHEM_BASE}/compound/cid/{cid}/property/"
-            "IsomericSMILES,IUPACName,MolecularFormula/JSON"
+            "IsomericSMILES,CanonicalSMILES,SMILES,IUPACName,MolecularFormula/JSON"
         )
-        prop_r = requests.get(prop_url, timeout=25)
+        prop_r = requests.get(prop_url, timeout=30, headers=PUBCHEM_HEADERS)
         if prop_r.status_code != 200:
             return {"error": "PubChem failed"}
         pjson = prop_r.json()
         if "PropertyTable" not in pjson or not pjson["PropertyTable"].get("Properties"):
             return {"error": "PubChem failed"}
         props = pjson["PropertyTable"]["Properties"][0]
-        smi_out = props.get("IsomericSMILES") or smi
+        smi_out = _props_smiles(props, "")
         if not smi_out:
             return {"error": "Compound not found"}
         return {
