@@ -1,0 +1,20 @@
+{
+  "name": "chatbot-app",
+  "version": "1.0.0",
+  "description": "Simple full-stack chatbot with a browser UI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "chatbot",
+    "node",
+    "javascript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
